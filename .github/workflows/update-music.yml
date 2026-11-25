@@ -1,0 +1,62 @@
+name: Auto Update Music Metadata
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.mp3'
+      - '**.m4a'
+      - '**.wav'
+      - '**.flac'
+      - '**.ogg'
+
+permissions:
+  contents: write
+
+jobs:
+  update-json:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install mutagen
+        run: pip install mutagen
+
+      - name: Scan audio metadata
+        run: |
+          python -c "
+          import os, json
+          from mutagen import File
+
+          exts = ('.mp3', '.m4a', '.wav', '.flac', '.ogg')
+          results = []
+
+          for root, _, files in os.walk('.'):
+              if '.git' in root:
+                  continue
+              for f in files:
+                  if f.lower().endswith(exts):
+                      full_path = os.path.join(root, f)
+                      rel_path = os.path.relpath(full_path, '.').replace(os.sep, '/')
+                      audio = File(full_path, easy=True)
+                      title = audio.get('title', [''])[0].strip() if audio else ''
+                      artist = audio.get('artist', [''])[0].strip() if audio else ''
+                      if not title:
+                          title = os.path.splitext(f)[0]
+                      results.append({'file': rel_path, 'title': title, 'artist': artist})
+
+          results.sort(key=lambda x: x['file'].lower())
+          with open('danh_sach_nhac.json', 'w', encoding='utf-8') as out:
+              json.dump(results, out, ensure_ascii=False, indent=2)
+          "
+
+      - name: Commit updated JSON
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add danh_sach_nhac.json
+          git diff --staged --quiet || (git commit -m "Auto-update danh_sach_nhac.json" && git push)
